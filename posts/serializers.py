@@ -14,53 +14,51 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class GroupSerializer(serializers.ModelSerializer):
-    group_name = serializers.CharField(source='title')
 
     class Meta:
         model = Group
-        fields = ('id', 'group_name', 'slug', 'description')
+        fields = ('id', 'title', 'slug', 'description')
 
 
 class CommentSerializer(serializers.ModelSerializer):
-    author = serializers.PrimaryKeyRelatedField(
-        read_only=True, default=serializers.CurrentUserDefault())
+    author = serializers.CharField(source='author.username', read_only=True)
+    post = serializers.IntegerField(source='post.id', read_only=True)
     created = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ('id', 'author', 'text', 'created')
+        fields = ('id', 'author', 'post', 'text', 'created')
 
     def get_created(self, obj):
         return dt.datetime.strftime(obj.created, '%d.%m.%Y %H:%M:%S')
 
 
 class PostSerializer(serializers.ModelSerializer):
-    author = serializers.PrimaryKeyRelatedField(
-        read_only=True, default=serializers.CurrentUserDefault())
-    comments = CommentSerializer(read_only=True, many=True)
-    group = GroupSerializer(read_only=True)
+    author = serializers.CharField(source='author.username', read_only=True)
+    group = serializers.PrimaryKeyRelatedField(queryset=Group.objects.all(),
+                                               allow_null=True,
+                                               required=False)
 
     class Meta:
         model = Post
-        fields = ('id', 'text', 'pub_date', 'author', 'image', 'group',
-                  'comments')
+        fields = ('id', 'text', 'pub_date', 'author', 'image', 'group')
 
     def create(self, validated_data):
-        if 'group' not in self.initial_data:
-            post = Post.objects.create(**validated_data)
-        else:
-            group_id = self.initial_data.pop('group')
+        post = Post.objects.create(**validated_data)
+        group_id = self.initial_data.get('group')
+        group = None
+        if group_id is not None:
             group = Group.objects.get(id=group_id)
-            post = Post.objects.create(**validated_data)
-            post.group = group
-            post.save()
+        post.group = group
+        post.save(update_fields=['group'])
         return post
 
     def update(self, instance, validated_data):
         if 'group' in self.initial_data:
             group_id = self.initial_data.pop('group')
+            group = None
             if group_id is not None:
                 group = Group.objects.get(id=group_id)
-                instance.group = group
+            instance.group = group
             instance.save()
         return super().update(instance, validated_data)
